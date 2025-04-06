@@ -19,9 +19,10 @@ while true; do
     echo "| 3) Start Persistent IPv6 Ping   |"
     echo "| 4) View Ping Log                |"
     echo "| 5) Add Cron Job for Tunnel      |"
-    echo "| 6) Remove Cron Job              |"
-    echo "| 7) Remove Tunnel                |"
-    echo "| 8) Exit                         |"
+    echo "| 6) Show Cron Jobs               |"
+    echo "| 7) Remove Cron Job              |"
+    echo "| 8) Remove Tunnel                |"
+    echo "| 9) Exit                         |"
     echo "========================================="
     read -p "Select an option: " OPTION
 
@@ -52,8 +53,13 @@ ip link set tunnel-PD mtu 1436
 ip link set tunnel-PD up
 
 if [ -f /etc/ping_ipv6_target ]; then
-    IPV6_TARGET=$(cat /etc/ping_ipv6_target)
-    nohup ping6 -i 3 \$IPV6_TARGET > /root/ping_output.log 2>&1 &
+    IPV6_TARGET=\$(cat /etc/ping_ipv6_target)
+    if [ -f /etc/ping_interval ]; then
+        PING_INTERVAL=\$(cat /etc/ping_interval)
+    else
+        PING_INTERVAL=3
+    fi
+    nohup bash -c "while true; do date '+%Y-%m-%d %H:%M:%S'; ping6 -c 1 \$IPV6_TARGET | grep -E 'bytes from|icmp_seq'; sleep \$PING_INTERVAL; done" > /root/ping_output.log 2>&1 &
 fi
 
 exit 0
@@ -76,9 +82,15 @@ EOF
         3)
             echo "Enter IPv6 address to ping: "
             read IPV6_TARGET
+            echo "Enter interval (seconds) between pings (default is 3): "
+            read PING_INTERVAL
+            PING_INTERVAL=${PING_INTERVAL:-3}
+
             echo "$IPV6_TARGET" | sudo tee /etc/ping_ipv6_target > /dev/null
-            nohup ping6 -i 3 $IPV6_TARGET > /root/ping_output.log 2>&1 &
-            echo "Persistent IPv6 ping started to $IPV6_TARGET. Output is being logged in /root/ping_output.log."
+            echo "$PING_INTERVAL" | sudo tee /etc/ping_interval > /dev/null
+
+            nohup bash -c "while true; do date '+%Y-%m-%d %H:%M:%S'; ping6 -c 1 $IPV6_TARGET | grep -E 'bytes from|icmp_seq'; sleep $PING_INTERVAL; done" > /root/ping_output.log 2>&1 &
+            echo "Persistent IPv6 ping started to $IPV6_TARGET every $PING_INTERVAL seconds. Output is being logged in /root/ping_output.log."
             read -p "Press Enter to continue..."
             ;;
         4)
@@ -86,41 +98,30 @@ EOF
             read -p "Press Enter to continue..."
             ;;
         5)
-            echo "Enter the interval in hours for restarting the tunnel (e.g., 1 for every 1 hour):"
-            read RESTART_HOURS
-
-            # ساخت اسکریپت برای ریستارت سرویس تونل
-            cat <<EOF | sudo tee /root/restart_tunnel.sh
-#!/bin/bash
-
-# Restart Tunnel Service
-sudo ip link set tunnel-PD down
-sudo ip link set tunnel-PD up
-
-echo "Tunnel has been restarted."
-EOF
-
-            sudo chmod +x /root/restart_tunnel.sh
-
-            # اضافه کردن کرون جاب
-            (crontab -l ; echo "0 */$RESTART_HOURS * * * /root/restart_tunnel.sh") | sudo crontab -
-
-            echo "Cron job added to restart the tunnel every $RESTART_HOURS hour(s)."
+            echo "Enter interval (in hours) to restart tunnel service: "
+            read INTERVAL
+            CRON_EXPRESSION="0 */$INTERVAL * * * systemctl restart rc-local"
+            (crontab -l 2>/dev/null; echo "$CRON_EXPRESSION") | crontab -
+            echo "Cron job added to restart tunnel every $INTERVAL hours."
             read -p "Press Enter to continue..."
             ;;
         6)
-            echo "Removing Cron job for tunnel..."
-            (crontab -l | grep -v "/root/restart_tunnel.sh") | sudo crontab -
-            echo "Cron job removed successfully."
+            echo "Current Cron Jobs:"
+            crontab -l
             read -p "Press Enter to continue..."
             ;;
         7)
+            crontab -l | grep -v 'systemctl restart rc-local' | crontab -
+            echo "Tunnel restart cron job removed."
+            read -p "Press Enter to continue..."
+            ;;
+        8)
             read -p "Are you sure you want to remove the tunnel? (y/n): " CONFIRM_DELETE
             if [[ "$CONFIRM_DELETE" == "y" ]]; then
                 echo "Removing tunnel..."
                 sudo ip link set tunnel-PD down
                 sudo ip tunnel del tunnel-PD
-                sudo rm -f /etc/rc.local /etc/ping_ipv6_target
+                sudo rm -f /etc/rc.local /etc/ping_ipv6_target /etc/ping_interval
                 echo "Tunnel removed successfully."
                 read -p "Do you want to reboot the server now? (y/n): " REBOOT_CHOICE
                 if [[ "$REBOOT_CHOICE" == "y" ]]; then
@@ -131,7 +132,7 @@ EOF
             fi
             read -p "Press Enter to continue..."
             ;;
-        8)
+        9)
             echo "Exiting..."
             exit 0
             ;;
