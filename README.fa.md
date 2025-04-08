@@ -15,9 +15,13 @@ PDIPV6TUN
 
 bash <(curl -Ls https://raw.githubusercontent.com/Mehdi682007/PDIPV6TUN/main/install.sh)
 ```
+### برای نصب نسخه دلخواه میتونید از طریق دستور زیر نصب رو انجام بدید ، بجای v1.0.1 ورژن دلخواه رو وارد کنید
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/Mehdi682007/PDIPV6TUN/v1.0.1/install.sh)
+```
 
-ویدئوی آموزشی : 
-https://youtu.be/py0WkHCYi28
+### ویدئوی آموزشی مربوط به این تانل :
+[![Example Video](https://i9.ytimg.com/vi_webp/py0WkHCYi28/mqdefault.webp?v=67ee74a4&sqp=CKyo1r8G&rs=AOn4CLC2cgNk3AQ9zpO_O8OtkxUkjwRgXQ)](https://youtu.be/py0WkHCYi28)
 
 ### توضیحاتی درباره اسکریپت نصب‌ کننده PDIPV6TUN : 
 
