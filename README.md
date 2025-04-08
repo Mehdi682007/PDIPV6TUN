@@ -18,7 +18,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/Mehdi682007/PDIPV6TUN/main/ins
 
 ```
 
-### For install costum Version , Replace v1.0.1 with the desired version.
+### For install custom Version , Replace v1.0.1 with the desired version.
 ```bash
 bash <(curl -Ls https://raw.githubusercontent.com/Mehdi682007/PDIPV6TUN/v1.0.1/install.sh)
 ```
