@@ -17,12 +17,11 @@ while true; do
     echo "| 1) Install Tunnel               |"
     echo "| 2) Show Assigned Local IPv6     |"
     echo "| 3) Start Persistent IPv6 Ping   |"
-    echo "| 4) View Ping Log                |"
-    echo "| 5) Add Cron Job for Tunnel      |"
-    echo "| 6) Show Cron Jobs               |"
-    echo "| 7) Remove Cron Job              |"
-    echo "| 8) Remove Tunnel                |"
-    echo "| 9) Exit                         |"
+    echo "| 4) Add Cron Job for Tunnel      |"
+    echo "| 5) Show Cron Jobs               |"
+    echo "| 6) Remove Cron Job              |"
+    echo "| 7) Remove Tunnel                |"
+    echo "| 8) Exit                         |"
     echo "========================================="
     read -p "Select an option: " OPTION
 
@@ -35,69 +34,90 @@ while true; do
             echo "Enter local IPv6 address: "
             read LOCAL_IPV6
 
-            sudo rm -f /etc/rc.local
+            # تعیین نام مناسب برای تونل جدید
+            LAST_NUM=$(grep -oE 'tunnel-PD[0-9]*' /etc/rc.local 2>/dev/null | sed 's/tunnel-PD//' | sort -n | tail -n 1)
+            if [ -z "$LAST_NUM" ]; then
+                NEXT_NUM=0
+            else
+                NEXT_NUM=$((LAST_NUM + 1))
+            fi
+            TUNNEL_NAME="tunnel-PD$NEXT_NUM"
 
-            sudo ip tunnel add tunnel-PD mode sit remote $REMOTE_IP local $LOCAL_IP ttl 126
-            sudo ip link set dev tunnel-PD up mtu 1500
-            sudo ip addr add $LOCAL_IPV6/64 dev tunnel-PD
-            sudo ip link set tunnel-PD mtu 1436
-            sudo ip link set tunnel-PD up
+            # ایجاد تونل
+            sudo ip tunnel add $TUNNEL_NAME mode sit remote $REMOTE_IP local $LOCAL_IP ttl 126
+            sudo ip link set dev $TUNNEL_NAME up mtu 1500
+            sudo ip addr add $LOCAL_IPV6/64 dev $TUNNEL_NAME
+            sudo ip link set $TUNNEL_NAME mtu 1436
+            sudo ip link set $TUNNEL_NAME up
 
-            cat <<EOF | sudo tee /etc/rc.local
-#!/bin/bash
+            # اطمینان از وجود فایل و تنظیمات rc.local
+            if [ ! -f /etc/rc.local ]; then
+                echo "#!/bin/bash" | sudo tee /etc/rc.local > /dev/null
+            fi
 
-ip tunnel add tunnel-PD mode sit remote $REMOTE_IP local $LOCAL_IP ttl 126
-ip link set dev tunnel-PD up mtu 1500
-ip addr add $LOCAL_IPV6/64 dev tunnel-PD
-ip link set tunnel-PD mtu 1436
-ip link set tunnel-PD up
+            FIRST_LINE=$(head -n 1 /etc/rc.local)
+            if [[ "$FIRST_LINE" != "#!/bin/bash" ]]; then
+                sudo sed -i '1s/.*/#!/bin/bash/' /etc/rc.local
+            fi
 
-if [ -f /etc/ping_ipv6_target ]; then
-    IPV6_TARGET=\$(cat /etc/ping_ipv6_target)
-    if [ -f /etc/ping_interval ]; then
-        PING_INTERVAL=\$(cat /etc/ping_interval)
-    else
-        PING_INTERVAL=3
-    fi
-    nohup bash -c "while true; do date '+%Y-%m-%d %H:%M:%S'; ping6 -c 1 \$IPV6_TARGET | grep -E 'bytes from|icmp_seq'; sleep \$PING_INTERVAL; done" > /root/ping_output.log 2>&1 &
-fi
+            sudo sed -i '/^exit 0$/d' /etc/rc.local
 
-exit 0
+            cat <<EOF | sudo tee -a /etc/rc.local > /dev/null
+
+# Tunnel: $TUNNEL_NAME
+ip tunnel add $TUNNEL_NAME mode sit remote $REMOTE_IP local $LOCAL_IP ttl 126
+ip link set dev $TUNNEL_NAME up mtu 1500
+ip addr add $LOCAL_IPV6/64 dev $TUNNEL_NAME
+ip link set $TUNNEL_NAME mtu 1436
+ip link set $TUNNEL_NAME up
 EOF
 
+            echo -e "\nexit 0" | sudo tee -a /etc/rc.local > /dev/null
             sudo chmod +x /etc/rc.local
 
-            echo "Tunnel setup completed and configured in /etc/rc.local"
+            echo "Tunnel $TUNNEL_NAME added and configured in /etc/rc.local"
             read -p "Do you want to reboot the server now? (y/n): " REBOOT_CHOICE
             if [[ "$REBOOT_CHOICE" == "y" ]]; then
                 sudo reboot
             fi
             read -p "Press Enter to continue..."
             ;;
+
         2)
             echo "Assigned Local IPv6 Address:"
             grep -oP 'ip addr add \K[^ ]+' /etc/rc.local 2>/dev/null || echo "No IPv6 assigned."
             read -p "Press Enter to continue..."
             ;;
+
         3)
-            echo "Enter IPv6 address to ping: "
-            read IPV6_TARGET
+            echo "Enter IPv6 addresses to ping (separate multiple IPs with space): "
+            read IPV6_TARGETS
             echo "Enter interval (seconds) between pings (default is 3): "
             read PING_INTERVAL
             PING_INTERVAL=${PING_INTERVAL:-3}
 
-            echo "$IPV6_TARGET" | sudo tee /etc/ping_ipv6_target > /dev/null
-            echo "$PING_INTERVAL" | sudo tee /etc/ping_interval > /dev/null
+           # ذخیره کردن IP ها در فایل برای استفاده آینده
+           echo "$IPV6_TARGETS" | sudo tee /etc/ping_ipv6_targets > /dev/null
 
-            nohup bash -c "while true; do date '+%Y-%m-%d %H:%M:%S'; ping6 -c 1 $IPV6_TARGET | grep -E 'bytes from|icmp_seq'; sleep $PING_INTERVAL; done" > /root/ping_output.log 2>&1 &
-            echo "Persistent IPv6 ping started to $IPV6_TARGET every $PING_INTERVAL seconds. Output is being logged in /root/ping_output.log."
-            read -p "Press Enter to continue..."
-            ;;
+           # شمارش آی‌پی‌ها برای نامگذاری فایل‌ها
+           COUNTER=1
+           for IPV6_TARGET in $IPV6_TARGETS; do
+           # ساخت نام فایل مجزا برای هر IP
+           LOG_FILE="/root/ping_output_$COUNTER.log"
+
+           # اجرای پینگ برای هر آی‌پی به‌طور همزمان
+           nohup bash -c "while true; do date '+%Y-%m-%d %H:%M:%S'; ping6 -c 1 $IPV6_TARGET | grep -E 'bytes from|icmp_seq'; sleep $PING_INTERVAL; done" > "$LOG_FILE" 2>&1 &
+
+           # افزایش شمارنده برای فایل بعدی
+           COUNTER=$((COUNTER+1))
+           done
+
+           echo "Persistent IPv6 ping started for the following IPs: $IPV6_TARGETS"
+           echo "Output is being logged in separate files under /root/ (ping_output_1.log, ping_output_2.log, etc.)."
+           read -p "Press Enter to continue..."
+           ;;
+
         4)
-            nano /root/ping_output.log
-            read -p "Press Enter to continue..."
-            ;;
-        5)
             echo "Enter interval (in hours) to restart tunnel service: "
             read INTERVAL
             CRON_EXPRESSION="0 */$INTERVAL * * * systemctl restart rc-local"
@@ -105,24 +125,29 @@ EOF
             echo "Cron job added to restart tunnel every $INTERVAL hours."
             read -p "Press Enter to continue..."
             ;;
-        6)
+
+        5)
             echo "Current Cron Jobs:"
             crontab -l
             read -p "Press Enter to continue..."
             ;;
-        7)
+
+        6)
             crontab -l | grep -v 'systemctl restart rc-local' | crontab -
             echo "Tunnel restart cron job removed."
             read -p "Press Enter to continue..."
             ;;
-        8)
-            read -p "Are you sure you want to remove the tunnel? (y/n): " CONFIRM_DELETE
+
+        7)
+            read -p "Are you sure you want to remove all tunnels? (y/n): " CONFIRM_DELETE
             if [[ "$CONFIRM_DELETE" == "y" ]]; then
-                echo "Removing tunnel..."
-                sudo ip link set tunnel-PD down
-                sudo ip tunnel del tunnel-PD
+                echo "Removing tunnels..."
+                for IFACE in $(ip -o link show | awk -F': ' '{print $2}' | grep '^tunnel-PD'); do
+                    sudo ip link set "$IFACE" down
+                    sudo ip tunnel del "$IFACE"
+                done
                 sudo rm -f /etc/rc.local /etc/ping_ipv6_target /etc/ping_interval
-                echo "Tunnel removed successfully."
+                echo "Tunnels removed successfully."
                 read -p "Do you want to reboot the server now? (y/n): " REBOOT_CHOICE
                 if [[ "$REBOOT_CHOICE" == "y" ]]; then
                     sudo reboot
@@ -132,10 +157,12 @@ EOF
             fi
             read -p "Press Enter to continue..."
             ;;
-        9)
+
+        8)
             echo "Exiting..."
             exit 0
             ;;
+
         *)
             echo "Invalid option!"
             read -p "Press Enter to continue..."
